@@ -3,7 +3,6 @@ use ::rand::Rng;
 use ::rand::thread_rng;
 use std::collections::VecDeque;
 
-// ==== CONFIG =====
 const GRID_WIDTH: i32 = 40;
 const GRID_HEIGHT: i32 = 30;
 const CELL_SIZE: f32 = 20.0;
@@ -67,7 +66,9 @@ impl SnakeGame {
 
     fn update(&mut self) {
         self.frame_counter += 1;
-        if self.frame_counter < 8 {
+
+        // ควบคุมความเร็วงูแยกจาก FPS (งูจะเดินทุก 8 เฟรม)
+        if self.frame_counter < 10 {
             return;
         }
         self.frame_counter = 0;
@@ -80,12 +81,13 @@ impl SnakeGame {
             Direction::Right => new_head.x += 1,
         }
 
-        // 👇 Wrap Around Logic
+        // เดินทะลุขอบ (wrap around)
         if new_head.x < 0 {
             new_head.x = GRID_WIDTH - 1;
         } else if new_head.x >= GRID_WIDTH {
             new_head.x = 0;
         }
+
         if new_head.y < 0 {
             new_head.y = GRID_HEIGHT - 1;
         } else if new_head.y >= GRID_HEIGHT {
@@ -119,10 +121,10 @@ impl SnakeGame {
     fn draw(&self) {
         clear_background(BLACK);
 
-        // 🔲 วาดกรอบ
+        // วาดกรอบสนาม
         draw_rectangle_lines(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, 2.0, WHITE);
 
-        // 🍎 วาดอาหาร
+        // วาดอาหาร
         draw_rectangle(
             self.food.x as f32 * CELL_SIZE,
             self.food.y as f32 * CELL_SIZE,
@@ -131,7 +133,7 @@ impl SnakeGame {
             RED,
         );
 
-        // 🐍 วาดงู
+        // วาดงู
         for (i, seg) in self.snake.iter().enumerate() {
             let color = if i == 0 { GREEN } else { DARKGREEN };
             draw_rectangle(
@@ -143,7 +145,7 @@ impl SnakeGame {
             );
         }
 
-        // 🛑 ถ้าแพ้
+        // แสดง Game Over
         if self.game_over {
             draw_text(
                 "GAME OVER",
@@ -161,7 +163,7 @@ impl SnakeGame {
             );
         }
 
-        // 🧮 คะแนน
+        // แสดงคะแนน
         draw_text(
             &format!("Score: {}", self.snake.len() - 1),
             10.0,
@@ -169,14 +171,22 @@ impl SnakeGame {
             20.0,
             WHITE,
         );
+
+        // แสดง FPS (ด้านบนขวา)
+        draw_text(
+            &format!("FPS: {}", get_fps()),
+            SCREEN_WIDTH - 100.0,
+            20.0,
+            20.0,
+            YELLOW,
+        );
     }
 }
 
-#[macroquad::main("Snake Game")]
+#[macroquad::main("Snake Game with FPS")]
 async fn main() {
-    // เปลี่ยนขนาดหน้าจอให้เท่ากับขนาดสนาม
     request_new_screen_size(SCREEN_WIDTH, SCREEN_HEIGHT);
-    next_frame().await; // รอ frame ก่อนใช้ขนาดใหม่
+    next_frame().await;
 
     let mut game = SnakeGame::new();
 
