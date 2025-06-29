@@ -24,12 +24,74 @@ struct Position {
     y: i32,
 }
 
+#[derive(PartialEq)]
+enum GameState {
+    Menu,
+    Playing,
+    GameOver,
+}
+
+struct Button {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    text: String,
+    color: Color,
+    hover_color: Color,
+}
+
+impl Button {
+    fn new(x: f32, y: f32, width: f32, height: f32, text: String) -> Self {
+        Button {
+            x,
+            y,
+            width,
+            height,
+            text,
+            color: GRAY,
+            hover_color: LIGHTGRAY,
+        }
+    }
+
+    fn draw(&self) {
+        let mouse_pos = mouse_position();
+        let is_hovered = mouse_pos.0 >= self.x && mouse_pos.0 <= self.x + self.width
+            && mouse_pos.1 >= self.y && mouse_pos.1 <= self.y + self.height;
+        
+        let color = if is_hovered { self.hover_color } else { self.color };
+        
+        draw_rectangle(self.x, self.y, self.width, self.height, color);
+        draw_rectangle_lines(self.x, self.y, self.width, self.height, 2.0, WHITE);
+        
+        let text_size = measure_text(&self.text, None, 20, 1.0);
+        draw_text(
+            &self.text,
+            self.x + (self.width - text_size.width) / 2.0,
+            self.y + (self.height + text_size.height) / 2.0,
+            20.0,
+            BLACK,
+        );
+    }
+
+    fn is_clicked(&self) -> bool {
+        let mouse_pos = mouse_position();
+        let is_hovered = mouse_pos.0 >= self.x && mouse_pos.0 <= self.x + self.width
+            && mouse_pos.1 >= self.y && mouse_pos.1 <= self.y + self.height;
+        
+        is_hovered && is_mouse_button_pressed(MouseButton::Left)
+    }
+}
+
 struct SnakeGame {
     snake: VecDeque<Position>,
     dir: Direction,
     food: Position,
     game_over: bool,
     frame_counter: u8,
+    state: GameState,
+    start_button: Button,
+    exit_button: Button,
 }
 
 impl SnakeGame {
@@ -42,12 +104,31 @@ impl SnakeGame {
 
         let food = Self::random_food(&snake);
 
+        let start_button = Button::new(
+            SCREEN_WIDTH / 2.0 - 100.0,
+            SCREEN_HEIGHT / 2.0 - 30.0,
+            200.0,
+            50.0,
+            "Start".to_string(),
+        );
+
+        let exit_button = Button::new(
+            SCREEN_WIDTH / 2.0 - 100.0,
+            SCREEN_HEIGHT / 2.0 + 40.0,
+            200.0,
+            50.0,
+            "Exit".to_string(),
+        );
+
         SnakeGame {
             snake,
             dir: Direction::Right,
             food,
             game_over: false,
             frame_counter: 0,
+            state: GameState::Menu,
+            start_button,
+            exit_button,
         }
     }
 
@@ -62,6 +143,20 @@ impl SnakeGame {
                 return pos;
             }
         }
+    }
+
+    fn reset_game(&mut self) {
+        let mut snake = VecDeque::new();
+        snake.push_back(Position {
+            x: GRID_WIDTH / 2,
+            y: GRID_HEIGHT / 2,
+        });
+
+        self.snake = snake;
+        self.dir = Direction::Right;
+        self.food = Self::random_food(&self.snake);
+        self.game_over = false;
+        self.frame_counter = 0;
     }
 
     fn update(&mut self) {
@@ -96,6 +191,7 @@ impl SnakeGame {
 
         if self.snake.contains(&new_head) {
             self.game_over = true;
+            self.state = GameState::GameOver;
             return;
         }
 
@@ -118,7 +214,36 @@ impl SnakeGame {
         }
     }
 
-    fn draw(&self) {
+    fn draw_menu(&self) {
+        clear_background(BLACK);
+        
+        // วาดกรอบสนาม
+        draw_rectangle_lines(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, 2.0, WHITE);
+        
+        // วาดชื่อเกม
+        draw_text(
+            "SNAKE GAME",
+            SCREEN_WIDTH / 2.0 - 120.0,
+            SCREEN_HEIGHT / 2.0 - 100.0,
+            40.0,
+            GREEN,
+        );
+        
+        // วาดปุ่ม
+        self.start_button.draw();
+        self.exit_button.draw();
+        
+        // แสดง FPS
+        draw_text(
+            &format!("FPS: {}", get_fps()),
+            SCREEN_WIDTH - 100.0,
+            20.0,
+            20.0,
+            YELLOW,
+        );
+    }
+
+    fn draw_game(&self) {
         clear_background(BLACK);
 
         // วาดกรอบสนาม
@@ -145,24 +270,6 @@ impl SnakeGame {
             );
         }
 
-        // แสดง Game Over
-        if self.game_over {
-            draw_text(
-                "GAME OVER",
-                SCREEN_WIDTH / 2.0 - 100.0,
-                SCREEN_HEIGHT / 2.0,
-                40.0,
-                WHITE,
-            );
-            draw_text(
-                "Press ENTER to Restart",
-                SCREEN_WIDTH / 2.0 - 130.0,
-                SCREEN_HEIGHT / 2.0 + 40.0,
-                25.0,
-                GRAY,
-            );
-        }
-
         // แสดงคะแนน
         draw_text(
             &format!("Score: {}", self.snake.len() - 1),
@@ -181,9 +288,78 @@ impl SnakeGame {
             YELLOW,
         );
     }
+
+    fn draw_game_over(&self) {
+        self.draw_game();
+        
+        // แสดง Game Over
+        draw_text(
+            "GAME OVER",
+            SCREEN_WIDTH / 2.0 - 100.0,
+            SCREEN_HEIGHT / 2.0 - 50.0,
+            40.0,
+            WHITE,
+        );
+        draw_text(
+            "Press ENTER to Restart",
+            SCREEN_WIDTH / 2.0 - 130.0,
+            SCREEN_HEIGHT / 2.0,
+            25.0,
+            GRAY,
+        );
+        draw_text(
+            "Press ESC for Menu",
+            SCREEN_WIDTH / 2.0 - 100.0,
+            SCREEN_HEIGHT / 2.0 + 30.0,
+            25.0,
+            GRAY,
+        );
+    }
+
+    fn draw(&self) {
+        match self.state {
+            GameState::Menu => self.draw_menu(),
+            GameState::Playing => self.draw_game(),
+            GameState::GameOver => self.draw_game_over(),
+        }
+    }
+
+    fn handle_input(&mut self) {
+        match self.state {
+            GameState::Menu => {
+                if self.start_button.is_clicked() {
+                    self.reset_game();
+                    self.state = GameState::Playing;
+                } else if self.exit_button.is_clicked() {
+                    std::process::exit(0);
+                }
+            },
+            GameState::Playing => {
+                if is_key_pressed(KeyCode::Up) {
+                    self.change_direction(Direction::Up);
+                } else if is_key_pressed(KeyCode::Down) {
+                    self.change_direction(Direction::Down);
+                } else if is_key_pressed(KeyCode::Left) {
+                    self.change_direction(Direction::Left);
+                } else if is_key_pressed(KeyCode::Right) {
+                    self.change_direction(Direction::Right);
+                } else if is_key_pressed(KeyCode::Escape) {
+                    self.state = GameState::Menu;
+                }
+            },
+            GameState::GameOver => {
+                if is_key_pressed(KeyCode::Enter) {
+                    self.reset_game();
+                    self.state = GameState::Playing;
+                } else if is_key_pressed(KeyCode::Escape) {
+                    self.state = GameState::Menu;
+                }
+            },
+        }
+    }
 }
 
-#[macroquad::main("Snake Game with FPS")]
+#[macroquad::main("Snake Game with Menu")]
 async fn main() {
     request_new_screen_size(SCREEN_WIDTH, SCREEN_HEIGHT);
     next_frame().await;
@@ -191,21 +367,9 @@ async fn main() {
     let mut game = SnakeGame::new();
 
     loop {
-        if is_key_pressed(KeyCode::Up) {
-            game.change_direction(Direction::Up);
-        } else if is_key_pressed(KeyCode::Down) {
-            game.change_direction(Direction::Down);
-        } else if is_key_pressed(KeyCode::Left) {
-            game.change_direction(Direction::Left);
-        } else if is_key_pressed(KeyCode::Right) {
-            game.change_direction(Direction::Right);
-        }
+        game.handle_input();
 
-        if game.game_over {
-            if is_key_pressed(KeyCode::Enter) {
-                game = SnakeGame::new();
-            }
-        } else {
+        if game.state == GameState::Playing {
             game.update();
         }
 
