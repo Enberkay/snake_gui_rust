@@ -5,10 +5,15 @@ use std::collections::VecDeque;
 
 const GRID_WIDTH: i32 = 40;
 const GRID_HEIGHT: i32 = 30;
-const CELL_SIZE: f32 = 20.0;
 
-const SCREEN_WIDTH: f32 = GRID_WIDTH as f32 * CELL_SIZE;
-const SCREEN_HEIGHT: f32 = GRID_HEIGHT as f32 * CELL_SIZE;
+// ใช้ฟังก์ชันเพื่อรับขนาดหน้าจอปัจจุบัน
+fn get_cell_size() -> f32 {
+    let screen_w = screen_width();
+    let screen_h = screen_height();
+    let cell_w = screen_w / GRID_WIDTH as f32;
+    let cell_h = screen_h / GRID_HEIGHT as f32;
+    cell_w.min(cell_h) // ใช้ขนาดที่เล็กกว่าเพื่อรักษาอัตราส่วน
+}
 
 #[derive(Copy, Clone, PartialEq)]
 enum Direction {
@@ -52,6 +57,11 @@ impl Button {
             color: GRAY,
             hover_color: LIGHTGRAY,
         }
+    }
+
+    fn update_position(&mut self, x: f32, y: f32) {
+        self.x = x;
+        self.y = y;
     }
 
     fn draw(&self) {
@@ -105,16 +115,16 @@ impl SnakeGame {
         let food = Self::random_food(&snake);
 
         let start_button = Button::new(
-            SCREEN_WIDTH / 2.0 - 100.0,
-            SCREEN_HEIGHT / 2.0 - 30.0,
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 - 30.0,
             200.0,
             50.0,
             "Start".to_string(),
         );
 
         let exit_button = Button::new(
-            SCREEN_WIDTH / 2.0 - 100.0,
-            SCREEN_HEIGHT / 2.0 + 40.0,
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 + 40.0,
             200.0,
             50.0,
             "Exit".to_string(),
@@ -157,6 +167,21 @@ impl SnakeGame {
         self.food = Self::random_food(&self.snake);
         self.game_over = false;
         self.frame_counter = 0;
+    }
+
+    fn update_button_positions(&mut self) {
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        
+        self.start_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 - 30.0,
+        );
+        
+        self.exit_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 + 40.0,
+        );
     }
 
     fn update(&mut self) {
@@ -217,14 +242,17 @@ impl SnakeGame {
     fn draw_menu(&self) {
         clear_background(BLACK);
         
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        
         // วาดกรอบสนาม
-        draw_rectangle_lines(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, 2.0, WHITE);
+        draw_rectangle_lines(0.0, 0.0, screen_w, screen_h, 2.0, WHITE);
         
         // วาดชื่อเกม
         draw_text(
             "SNAKE GAME",
-            SCREEN_WIDTH / 2.0 - 120.0,
-            SCREEN_HEIGHT / 2.0 - 100.0,
+            screen_w / 2.0 - 120.0,
+            screen_h / 2.0 - 100.0,
             40.0,
             GREEN,
         );
@@ -236,7 +264,7 @@ impl SnakeGame {
         // แสดง FPS
         draw_text(
             &format!("FPS: {}", get_fps()),
-            SCREEN_WIDTH - 100.0,
+            screen_w - 100.0,
             20.0,
             20.0,
             YELLOW,
@@ -246,15 +274,25 @@ impl SnakeGame {
     fn draw_game(&self) {
         clear_background(BLACK);
 
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let cell_size = get_cell_size();
+
+        // คำนวณตำแหน่งเริ่มต้นเพื่อให้เกมอยู่กลางหน้าจอ
+        let game_width = GRID_WIDTH as f32 * cell_size;
+        let game_height = GRID_HEIGHT as f32 * cell_size;
+        let offset_x = (screen_w - game_width) / 2.0;
+        let offset_y = (screen_h - game_height) / 2.0;
+
         // วาดกรอบสนาม
-        draw_rectangle_lines(0.0, 0.0, SCREEN_WIDTH, SCREEN_HEIGHT, 2.0, WHITE);
+        draw_rectangle_lines(offset_x, offset_y, game_width, game_height, 2.0, WHITE);
 
         // วาดอาหาร
         draw_rectangle(
-            self.food.x as f32 * CELL_SIZE,
-            self.food.y as f32 * CELL_SIZE,
-            CELL_SIZE,
-            CELL_SIZE,
+            offset_x + self.food.x as f32 * cell_size,
+            offset_y + self.food.y as f32 * cell_size,
+            cell_size,
+            cell_size,
             RED,
         );
 
@@ -262,10 +300,10 @@ impl SnakeGame {
         for (i, seg) in self.snake.iter().enumerate() {
             let color = if i == 0 { GREEN } else { DARKGREEN };
             draw_rectangle(
-                seg.x as f32 * CELL_SIZE,
-                seg.y as f32 * CELL_SIZE,
-                CELL_SIZE,
-                CELL_SIZE,
+                offset_x + seg.x as f32 * cell_size,
+                offset_y + seg.y as f32 * cell_size,
+                cell_size,
+                cell_size,
                 color,
             );
         }
@@ -274,7 +312,7 @@ impl SnakeGame {
         draw_text(
             &format!("Score: {}", self.snake.len() - 1),
             10.0,
-            SCREEN_HEIGHT - 10.0,
+            screen_h - 10.0,
             20.0,
             WHITE,
         );
@@ -282,7 +320,7 @@ impl SnakeGame {
         // แสดง FPS (ด้านบนขวา)
         draw_text(
             &format!("FPS: {}", get_fps()),
-            SCREEN_WIDTH - 100.0,
+            screen_w - 100.0,
             20.0,
             20.0,
             YELLOW,
@@ -292,25 +330,28 @@ impl SnakeGame {
     fn draw_game_over(&self) {
         self.draw_game();
         
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        
         // แสดง Game Over
         draw_text(
             "GAME OVER",
-            SCREEN_WIDTH / 2.0 - 100.0,
-            SCREEN_HEIGHT / 2.0 - 50.0,
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 - 50.0,
             40.0,
             WHITE,
         );
         draw_text(
             "Press ENTER to Restart",
-            SCREEN_WIDTH / 2.0 - 130.0,
-            SCREEN_HEIGHT / 2.0,
+            screen_w / 2.0 - 130.0,
+            screen_h / 2.0,
             25.0,
             GRAY,
         );
         draw_text(
             "Press ESC for Menu",
-            SCREEN_WIDTH / 2.0 - 100.0,
-            SCREEN_HEIGHT / 2.0 + 30.0,
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 + 30.0,
             25.0,
             GRAY,
         );
@@ -361,12 +402,15 @@ impl SnakeGame {
 
 #[macroquad::main("Snake Game with Menu")]
 async fn main() {
-    request_new_screen_size(SCREEN_WIDTH, SCREEN_HEIGHT);
+    request_new_screen_size(800.0, 600.0);
     next_frame().await;
 
     let mut game = SnakeGame::new();
 
     loop {
+        // อัปเดตตำแหน่งปุ่มเมื่อหน้าจอเปลี่ยนขนาด
+        game.update_button_positions();
+        
         game.handle_input();
 
         if game.state == GameState::Playing {
