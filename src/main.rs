@@ -102,6 +102,7 @@ struct SnakeGame {
     state: GameState,
     start_button: Button,
     exit_button: Button,
+    high_score: usize, // เพิ่มฟิลด์ high_score
 }
 
 impl SnakeGame {
@@ -139,6 +140,7 @@ impl SnakeGame {
             state: GameState::Menu,
             start_button,
             exit_button,
+            high_score: 0, // ค่าเริ่มต้น
         }
     }
 
@@ -161,6 +163,12 @@ impl SnakeGame {
             x: GRID_WIDTH / 2,
             y: GRID_HEIGHT / 2,
         });
+
+        // ก่อนรีเซ็ต ถ้าคะแนนมากกว่า high_score ให้บันทึก
+        let score = self.snake.len() - 1;
+        if score > self.high_score {
+            self.high_score = score;
+        }
 
         self.snake = snake;
         self.dir = Direction::Right;
@@ -261,6 +269,14 @@ impl SnakeGame {
         self.start_button.draw();
         self.exit_button.draw();
         
+        // แสดง High Score
+        draw_text(
+            &format!("High Score: {}", self.high_score),
+            screen_w / 2.0 - 90.0,
+            screen_h / 2.0 - 60.0,
+            30.0,
+            YELLOW,
+        );
         // แสดง FPS
         draw_text(
             &format!("FPS: {}", get_fps()),
@@ -340,6 +356,14 @@ impl SnakeGame {
             screen_h / 2.0 - 50.0,
             40.0,
             WHITE,
+        );
+        // แสดงคะแนนสูงสุด
+        draw_text(
+            &format!("High Score: {}", self.high_score),
+            screen_w / 2.0 - 90.0,
+            screen_h / 2.0 - 10.0,
+            30.0,
+            YELLOW,
         );
         draw_text(
             "Press ENTER to Restart",
