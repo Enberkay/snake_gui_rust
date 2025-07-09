@@ -35,6 +35,7 @@ struct Position {
 enum GameState {
     Menu,
     Playing,
+    Paused, // เพิ่มสถานะ Pause
     GameOver,
 }
 
@@ -408,6 +409,26 @@ impl SnakeGame {
         match self.state {
             GameState::Menu => self.draw_menu(),
             GameState::Playing => self.draw_game(),
+            GameState::Paused => {
+                self.draw_game();
+                // วาดข้อความ Paused ทับ
+                let screen_w = screen_width();
+                let screen_h = screen_height();
+                draw_rectangle(
+                    screen_w / 2.0 - 120.0,
+                    screen_h / 2.0 - 60.0,
+                    240.0,
+                    80.0,
+                    Color::new(0.0, 0.0, 0.0, 0.7),
+                );
+                draw_text(
+                    "PAUSED",
+                    screen_w / 2.0 - 70.0,
+                    screen_h / 2.0,
+                    50.0,
+                    YELLOW,
+                );
+            },
             GameState::GameOver => self.draw_game_over(),
         }
     }
@@ -431,6 +452,15 @@ impl SnakeGame {
                     self.change_direction(Direction::Left);
                 } else if is_key_pressed(KeyCode::Right) {
                     self.change_direction(Direction::Right);
+                } else if is_key_pressed(KeyCode::Escape) {
+                    self.state = GameState::Menu;
+                } else if is_key_pressed(KeyCode::Space) {
+                    self.state = GameState::Paused;
+                }
+            },
+            GameState::Paused => {
+                if is_key_pressed(KeyCode::Space) {
+                    self.state = GameState::Playing;
                 } else if is_key_pressed(KeyCode::Escape) {
                     self.state = GameState::Menu;
                 }
