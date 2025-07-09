@@ -2,6 +2,8 @@ use macroquad::prelude::*;
 use ::rand::Rng;
 use ::rand::thread_rng;
 use std::collections::VecDeque;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 
 const GRID_WIDTH: i32 = 40;
 const GRID_HEIGHT: i32 = 30;
@@ -106,6 +108,24 @@ struct SnakeGame {
 }
 
 impl SnakeGame {
+    fn load_high_score() -> usize {
+        if let Ok(mut file) = File::open("highscore.txt") {
+            let mut contents = String::new();
+            if file.read_to_string(&mut contents).is_ok() {
+                if let Ok(score) = contents.trim().parse::<usize>() {
+                    return score;
+                }
+            }
+        }
+        0
+    }
+
+    fn save_high_score(&self) {
+        if let Ok(mut file) = OpenOptions::new().write(true).create(true).truncate(true).open("highscore.txt") {
+            let _ = write!(file, "{}", self.high_score);
+        }
+    }
+
     fn new() -> Self {
         let mut snake = VecDeque::new();
         snake.push_back(Position {
@@ -131,6 +151,8 @@ impl SnakeGame {
             "Exit".to_string(),
         );
 
+        let high_score = Self::load_high_score();
+
         SnakeGame {
             snake,
             dir: Direction::Right,
@@ -140,7 +162,7 @@ impl SnakeGame {
             state: GameState::Menu,
             start_button,
             exit_button,
-            high_score: 0, // ค่าเริ่มต้น
+            high_score,
         }
     }
 
@@ -168,6 +190,7 @@ impl SnakeGame {
         let score = self.snake.len() - 1;
         if score > self.high_score {
             self.high_score = score;
+            self.save_high_score();
         }
 
         self.snake = snake;
