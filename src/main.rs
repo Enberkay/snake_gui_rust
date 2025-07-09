@@ -39,6 +39,12 @@ enum GameState {
     GameOver,
 }
 
+#[derive(PartialEq, Copy, Clone)]
+enum GameMode {
+    Normal,
+    Obstacle,
+}
+
 struct Button {
     x: f32,
     y: f32,
@@ -104,9 +110,11 @@ struct SnakeGame {
     game_over: bool,
     frame_counter: u8,
     state: GameState,
-    start_button: Button,
     exit_button: Button,
+    normal_mode_button: Button,
+    obstacle_mode_button: Button,
     high_score: usize, // เพิ่มฟิลด์ high_score
+    game_mode: GameMode,
 }
 
 impl SnakeGame {
@@ -137,26 +145,8 @@ impl SnakeGame {
 
         let food = Self::random_food(&snake);
 
-        // สุ่ม obstacle 10 ก้อน ไม่ซ้ำกับงูและอาหาร
-        let mut rng = thread_rng();
-        let mut obstacles = Vec::new();
-        while obstacles.len() < 10 {
-            let pos = Position {
-                x: rng.gen_range(0..GRID_WIDTH),
-                y: rng.gen_range(0..GRID_HEIGHT),
-            };
-            if !snake.contains(&pos) && pos != food && !obstacles.contains(&pos) {
-                obstacles.push(pos);
-            }
-        }
-
-        let start_button = Button::new(
-            screen_width() / 2.0 - 100.0,
-            screen_height() / 2.0 - 30.0,
-            200.0,
-            50.0,
-            "Start".to_string(),
-        );
+        // เริ่มต้นไม่มี obstacle จนกว่าจะเลือกโหมด Obstacle
+        let obstacles = Vec::new();
 
         let exit_button = Button::new(
             screen_width() / 2.0 - 100.0,
@@ -164,6 +154,21 @@ impl SnakeGame {
             200.0,
             50.0,
             "Exit".to_string(),
+        );
+
+        let normal_mode_button = Button::new(
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 - 100.0,
+            200.0,
+            50.0,
+            "Normal Mode".to_string(),
+        );
+        let obstacle_mode_button = Button::new(
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 - 40.0,
+            200.0,
+            50.0,
+            "Obstacle Mode".to_string(),
         );
 
         let high_score = Self::load_high_score();
@@ -176,9 +181,11 @@ impl SnakeGame {
             game_over: false,
             frame_counter: 0,
             state: GameState::Menu,
-            start_button,
             exit_button,
+            normal_mode_button,
+            obstacle_mode_button,
             high_score,
+            game_mode: GameMode::Normal,
         }
     }
 
@@ -209,20 +216,23 @@ impl SnakeGame {
             self.save_high_score();
         }
 
-        // สุ่ม obstacle ใหม่
-        let mut rng = thread_rng();
-        let mut obstacles = Vec::new();
-        while obstacles.len() < 10 {
-            let pos = Position {
-                x: rng.gen_range(0..GRID_WIDTH),
-                y: rng.gen_range(0..GRID_HEIGHT),
-            };
-            if !snake.contains(&pos) && pos != self.food && !obstacles.contains(&pos) {
-                obstacles.push(pos);
+        // สุ่ม obstacle เฉพาะโหมด Obstacle
+        if self.game_mode == GameMode::Obstacle {
+            let mut rng = thread_rng();
+            let mut obstacles = Vec::new();
+            while obstacles.len() < 10 {
+                let pos = Position {
+                    x: rng.gen_range(0..GRID_WIDTH),
+                    y: rng.gen_range(0..GRID_HEIGHT),
+                };
+                if !snake.contains(&pos) && pos != self.food && !obstacles.contains(&pos) {
+                    obstacles.push(pos);
+                }
             }
+            self.obstacles = obstacles;
+        } else {
+            self.obstacles.clear();
         }
-        self.obstacles = obstacles;
-
         self.snake = snake;
         self.dir = Direction::Right;
         self.food = Self::random_food(&self.snake);
@@ -234,14 +244,17 @@ impl SnakeGame {
         let screen_w = screen_width();
         let screen_h = screen_height();
         
-        self.start_button.update_position(
-            screen_w / 2.0 - 100.0,
-            screen_h / 2.0 - 30.0,
-        );
-        
         self.exit_button.update_position(
             screen_w / 2.0 - 100.0,
             screen_h / 2.0 + 40.0,
+        );
+        self.normal_mode_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 - 100.0,
+        );
+        self.obstacle_mode_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 - 40.0,
         );
     }
 
@@ -275,8 +288,8 @@ impl SnakeGame {
             new_head.y = 0;
         }
 
-        // ถ้างูชน obstacle ให้ Game Over
-        if self.obstacles.contains(&new_head) {
+        // ตรวจ obstacle เฉพาะโหมด Obstacle
+        if self.game_mode == GameMode::Obstacle && self.obstacles.contains(&new_head) {
             self.game_over = true;
             self.state = GameState::GameOver;
             return;
@@ -316,27 +329,29 @@ impl SnakeGame {
         // วาดกรอบสนาม
         draw_rectangle_lines(0.0, 0.0, screen_w, screen_h, 2.0, WHITE);
         
-        // วาดชื่อเกม
+        // แสดง High Score ด้านบนสุด
+        draw_text(
+            &format!("High Score: {}", self.high_score),
+            screen_w / 2.0 - 90.0,
+            60.0,
+            30.0,
+            YELLOW,
+        );
+        // ขยับชื่อเกมลงมา
         draw_text(
             "SNAKE GAME",
             screen_w / 2.0 - 120.0,
-            screen_h / 2.0 - 100.0,
+            110.0,
             40.0,
             GREEN,
         );
         
+        // วาดปุ่มเลือกโหมด
+        self.normal_mode_button.draw();
+        self.obstacle_mode_button.draw();
         // วาดปุ่ม
-        self.start_button.draw();
         self.exit_button.draw();
         
-        // แสดง High Score
-        draw_text(
-            &format!("High Score: {}", self.high_score),
-            screen_w / 2.0 - 90.0,
-            screen_h / 2.0 - 60.0,
-            30.0,
-            YELLOW,
-        );
         // แสดง FPS
         draw_text(
             &format!("FPS: {}", get_fps()),
@@ -363,15 +378,17 @@ impl SnakeGame {
         // วาดกรอบสนาม
         draw_rectangle_lines(offset_x, offset_y, game_width, game_height, 2.0, WHITE);
 
-        // วาด obstacle
-        for obs in &self.obstacles {
-            draw_rectangle(
-                offset_x + obs.x as f32 * cell_size,
-                offset_y + obs.y as f32 * cell_size,
-                cell_size,
-                cell_size,
-                GRAY,
-            );
+        // วาด obstacle เฉพาะโหมด Obstacle
+        if self.game_mode == GameMode::Obstacle {
+            for obs in &self.obstacles {
+                draw_rectangle(
+                    offset_x + obs.x as f32 * cell_size,
+                    offset_y + obs.y as f32 * cell_size,
+                    cell_size,
+                    cell_size,
+                    GRAY,
+                );
+            }
         }
 
         // วาดอาหาร
@@ -483,10 +500,16 @@ impl SnakeGame {
     fn handle_input(&mut self) {
         match self.state {
             GameState::Menu => {
-                if self.start_button.is_clicked() {
+                if self.normal_mode_button.is_clicked() {
+                    self.game_mode = GameMode::Normal;
                     self.reset_game();
                     self.state = GameState::Playing;
-                } else if self.exit_button.is_clicked() {
+                } else if self.obstacle_mode_button.is_clicked() {
+                    self.game_mode = GameMode::Obstacle;
+                    self.reset_game();
+                    self.state = GameState::Playing;
+                }
+                if self.exit_button.is_clicked() {
                     std::process::exit(0);
                 }
             },
