@@ -2,6 +2,8 @@ use macroquad::prelude::*;
 use ::rand::Rng;
 use ::rand::thread_rng;
 use std::collections::VecDeque;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Write};
 
 const GRID_WIDTH: i32 = 40;
 const GRID_HEIGHT: i32 = 30;
@@ -102,9 +104,28 @@ struct SnakeGame {
     state: GameState,
     start_button: Button,
     exit_button: Button,
+    high_score: usize, // เพิ่มฟิลด์ high_score
 }
 
 impl SnakeGame {
+    fn load_high_score() -> usize {
+        if let Ok(mut file) = File::open("highscore.txt") {
+            let mut contents = String::new();
+            if file.read_to_string(&mut contents).is_ok() {
+                if let Ok(score) = contents.trim().parse::<usize>() {
+                    return score;
+                }
+            }
+        }
+        0
+    }
+
+    fn save_high_score(&self) {
+        if let Ok(mut file) = OpenOptions::new().write(true).create(true).truncate(true).open("highscore.txt") {
+            let _ = write!(file, "{}", self.high_score);
+        }
+    }
+
     fn new() -> Self {
         let mut snake = VecDeque::new();
         snake.push_back(Position {
@@ -130,6 +151,8 @@ impl SnakeGame {
             "Exit".to_string(),
         );
 
+        let high_score = Self::load_high_score();
+
         SnakeGame {
             snake,
             dir: Direction::Right,
@@ -139,6 +162,7 @@ impl SnakeGame {
             state: GameState::Menu,
             start_button,
             exit_button,
+            high_score,
         }
     }
 
@@ -161,6 +185,13 @@ impl SnakeGame {
             x: GRID_WIDTH / 2,
             y: GRID_HEIGHT / 2,
         });
+
+        // ก่อนรีเซ็ต ถ้าคะแนนมากกว่า high_score ให้บันทึก
+        let score = self.snake.len() - 1;
+        if score > self.high_score {
+            self.high_score = score;
+            self.save_high_score();
+        }
 
         self.snake = snake;
         self.dir = Direction::Right;
@@ -261,6 +292,14 @@ impl SnakeGame {
         self.start_button.draw();
         self.exit_button.draw();
         
+        // แสดง High Score
+        draw_text(
+            &format!("High Score: {}", self.high_score),
+            screen_w / 2.0 - 90.0,
+            screen_h / 2.0 - 60.0,
+            30.0,
+            YELLOW,
+        );
         // แสดง FPS
         draw_text(
             &format!("FPS: {}", get_fps()),
@@ -340,6 +379,14 @@ impl SnakeGame {
             screen_h / 2.0 - 50.0,
             40.0,
             WHITE,
+        );
+        // แสดงคะแนนสูงสุด
+        draw_text(
+            &format!("High Score: {}", self.high_score),
+            screen_w / 2.0 - 90.0,
+            screen_h / 2.0 - 10.0,
+            30.0,
+            YELLOW,
         );
         draw_text(
             "Press ENTER to Restart",
