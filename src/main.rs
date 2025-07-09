@@ -100,6 +100,7 @@ struct SnakeGame {
     snake: VecDeque<Position>,
     dir: Direction,
     food: Position,
+    obstacles: Vec<Position>, // เพิ่ม obstacle
     game_over: bool,
     frame_counter: u8,
     state: GameState,
@@ -136,6 +137,19 @@ impl SnakeGame {
 
         let food = Self::random_food(&snake);
 
+        // สุ่ม obstacle 10 ก้อน ไม่ซ้ำกับงูและอาหาร
+        let mut rng = thread_rng();
+        let mut obstacles = Vec::new();
+        while obstacles.len() < 10 {
+            let pos = Position {
+                x: rng.gen_range(0..GRID_WIDTH),
+                y: rng.gen_range(0..GRID_HEIGHT),
+            };
+            if !snake.contains(&pos) && pos != food && !obstacles.contains(&pos) {
+                obstacles.push(pos);
+            }
+        }
+
         let start_button = Button::new(
             screen_width() / 2.0 - 100.0,
             screen_height() / 2.0 - 30.0,
@@ -158,6 +172,7 @@ impl SnakeGame {
             snake,
             dir: Direction::Right,
             food,
+            obstacles,
             game_over: false,
             frame_counter: 0,
             state: GameState::Menu,
@@ -193,6 +208,20 @@ impl SnakeGame {
             self.high_score = score;
             self.save_high_score();
         }
+
+        // สุ่ม obstacle ใหม่
+        let mut rng = thread_rng();
+        let mut obstacles = Vec::new();
+        while obstacles.len() < 10 {
+            let pos = Position {
+                x: rng.gen_range(0..GRID_WIDTH),
+                y: rng.gen_range(0..GRID_HEIGHT),
+            };
+            if !snake.contains(&pos) && pos != self.food && !obstacles.contains(&pos) {
+                obstacles.push(pos);
+            }
+        }
+        self.obstacles = obstacles;
 
         self.snake = snake;
         self.dir = Direction::Right;
@@ -244,6 +273,13 @@ impl SnakeGame {
             new_head.y = GRID_HEIGHT - 1;
         } else if new_head.y >= GRID_HEIGHT {
             new_head.y = 0;
+        }
+
+        // ถ้างูชน obstacle ให้ Game Over
+        if self.obstacles.contains(&new_head) {
+            self.game_over = true;
+            self.state = GameState::GameOver;
+            return;
         }
 
         if self.snake.contains(&new_head) {
@@ -326,6 +362,17 @@ impl SnakeGame {
 
         // วาดกรอบสนาม
         draw_rectangle_lines(offset_x, offset_y, game_width, game_height, 2.0, WHITE);
+
+        // วาด obstacle
+        for obs in &self.obstacles {
+            draw_rectangle(
+                offset_x + obs.x as f32 * cell_size,
+                offset_y + obs.y as f32 * cell_size,
+                cell_size,
+                cell_size,
+                GRAY,
+            );
+        }
 
         // วาดอาหาร
         draw_rectangle(
