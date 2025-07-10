@@ -1,130 +1,20 @@
 use macroquad::prelude::*;
 use ::rand::Rng;
 use ::rand::thread_rng;
-use std::collections::VecDeque;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
 
-// Sound system
-struct SoundManager {
-    sound_enabled: bool,
-}
+mod utils;
+mod audio;
+mod ui;
+mod game;
 
-const GRID_WIDTH: i32 = 40;
-const GRID_HEIGHT: i32 = 30;
-
-// ใช้ฟังก์ชันเพื่อรับขนาดหน้าจอปัจจุบัน
-fn get_cell_size() -> f32 {
-    let screen_w = screen_width();
-    let screen_h = screen_height();
-    let cell_w = screen_w / GRID_WIDTH as f32;
-    let cell_h = screen_h / GRID_HEIGHT as f32;
-    cell_w.min(cell_h) // ใช้ขนาดที่เล็กกว่าเพื่อรักษาอัตราส่วน
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum Direction {
-    Up,
-    Down,
-    Left,
-    Right,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-struct Position {
-    x: i32,
-    y: i32,
-}
-
-#[derive(PartialEq)]
-enum GameState {
-    Menu,
-    Playing,
-    Paused, // เพิ่มสถานะ Pause
-    GameOver,
-}
-
-#[derive(PartialEq)]
-enum GameMode {
-    Normal,
-    Obstacle,
-}
-
-#[derive(Copy, Clone, PartialEq)]
-enum PowerUpType {
-    SpeedBoost,
-    Shrink,
-    GhostMode,
-}
-
-#[derive(Copy, Clone)]
-struct PowerUp {
-    position: Position,
-    power_type: PowerUpType,
-    duration: u32, // frames
-}
-
-struct Button {
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
-    text: String,
-    color: Color,
-    hover_color: Color,
-}
-
-impl Button {
-    fn new(x: f32, y: f32, width: f32, height: f32, text: String) -> Self {
-        Button {
-            x,
-            y,
-            width,
-            height,
-            text,
-            color: GRAY,
-            hover_color: LIGHTGRAY,
-        }
-    }
-
-    fn update_position(&mut self, x: f32, y: f32) {
-        self.x = x;
-        self.y = y;
-    }
-
-    fn draw(&self) {
-        let mouse_pos = mouse_position();
-        let is_hovered = mouse_pos.0 >= self.x && mouse_pos.0 <= self.x + self.width
-            && mouse_pos.1 >= self.y && mouse_pos.1 <= self.y + self.height;
-        
-        let color = if is_hovered { self.hover_color } else { self.color };
-        
-        draw_rectangle(self.x, self.y, self.width, self.height, color);
-        draw_rectangle_lines(self.x, self.y, self.width, self.height, 2.0, WHITE);
-        
-        let text_size = measure_text(&self.text, None, 20, 1.0);
-        draw_text(
-            &self.text,
-            self.x + (self.width - text_size.width) / 2.0,
-            self.y + (self.height + text_size.height) / 2.0,
-            20.0,
-            BLACK,
-        );
-    }
-
-    fn is_clicked(&self) -> bool {
-        let mouse_pos = mouse_position();
-        let is_hovered = mouse_pos.0 >= self.x && mouse_pos.0 <= self.x + self.width
-            && mouse_pos.1 >= self.y && mouse_pos.1 <= self.y + self.height;
-        
-        is_hovered && is_mouse_button_pressed(MouseButton::Left)
-    }
-}
+use utils::*;
+use audio::SoundManager;
+use ui::Button;
+use game::{Snake, Food, PowerUpManager, GameState, GameMode, Direction, PowerUpType};
 
 struct SnakeGame {
-    snake: VecDeque<Position>,
-    dir: Direction,
-    food: Position,
+    snake: Snake,
+    food: Food,
     game_over: bool,
     frame_counter: u8,
     state: GameState,
@@ -132,42 +22,18 @@ struct SnakeGame {
     exit_button: Button,
     sound_button: Button,
     mode_button: Button,
-    high_score: usize, // เพิ่มฟิลด์ high_score
-    sound_manager: SoundManager, // เพิ่ม sound manager
+    high_score: usize,
+    sound_manager: SoundManager,
+    power_up_manager: PowerUpManager,
     game_mode: GameMode,
-    power_ups: Vec<PowerUp>,
-    active_power_ups: Vec<(PowerUpType, u32)>,
-    speed_multiplier: f32,
-    ghost_mode: bool,
+    obstacles: Vec<game::Position>,
 }
 
 impl SnakeGame {
-    fn load_high_score() -> usize {
-        if let Ok(mut file) = File::open("highscore.txt") {
-            let mut contents = String::new();
-            if file.read_to_string(&mut contents).is_ok() {
-                if let Ok(score) = contents.trim().parse::<usize>() {
-                    return score;
-                }
-            }
-        }
-        0
-    }
-
-    fn save_high_score(&self) {
-        if let Ok(mut file) = OpenOptions::new().write(true).create(true).truncate(true).open("highscore.txt") {
-            let _ = write!(file, "{}", self.high_score);
-        }
-    }
-
     fn new() -> Self {
-        let mut snake = VecDeque::new();
-        snake.push_back(Position {
-            x: GRID_WIDTH / 2,
-            y: GRID_HEIGHT / 2,
-        });
-
-        let food = Self::random_food(&snake);
+        let snake = Snake::new();
+        let food = Food::new();
+        let power_up_manager = PowerUpManager::new();
 
         let start_button = Button::new(
             screen_width() / 2.0 - 100.0,
@@ -192,6 +58,7 @@ impl SnakeGame {
             50.0,
             "Sound: ON".to_string(),
         );
+
         let mode_button = Button::new(
             screen_width() / 2.0 - 100.0,
             screen_height() / 2.0 + 180.0,
@@ -200,14 +67,11 @@ impl SnakeGame {
             "Mode: Normal".to_string(),
         );
 
-        let high_score = Self::load_high_score();
-        let sound_manager = SoundManager {
-            sound_enabled: true,
-        };
+        let high_score = load_high_score();
+        let sound_manager = SoundManager::new();
 
         SnakeGame {
             snake,
-            dir: Direction::Right,
             food,
             game_over: false,
             frame_counter: 0,
@@ -218,46 +82,53 @@ impl SnakeGame {
             mode_button,
             high_score,
             sound_manager,
+            power_up_manager,
             game_mode: GameMode::Normal,
-            power_ups: Vec::new(),
-            active_power_ups: Vec::new(),
-            speed_multiplier: 1.0,
-            ghost_mode: false,
+            obstacles: Vec::new(),
         }
     }
 
-    fn random_food(snake: &VecDeque<Position>) -> Position {
+    fn generate_obstacles(&self) -> Vec<game::Position> {
+        let mut obstacles = Vec::new();
         let mut rng = thread_rng();
-        loop {
-            let pos = Position {
-                x: rng.gen_range(0..GRID_WIDTH),
-                y: rng.gen_range(0..GRID_HEIGHT),
-            };
-            if !snake.contains(&pos) {
-                return pos;
+        
+        let num_obstacles = rng.gen_range(5..9);
+        
+        for _ in 0..num_obstacles {
+            loop {
+                let pos = game::Position {
+                    x: rng.gen_range(0..GRID_WIDTH),
+                    y: rng.gen_range(0..GRID_HEIGHT),
+                };
+                if !self.snake.contains(&pos) && pos != self.food.position && !obstacles.contains(&pos) {
+                    obstacles.push(pos);
+                    break;
+                }
             }
+        }
+        obstacles
+    }
+
+    fn save_current_score(&mut self) {
+        let score = self.snake.len() - 1;
+        if score > self.high_score {
+            self.high_score = score;
+            save_high_score(self.high_score);
         }
     }
 
     fn reset_game(&mut self) {
-        let mut snake = VecDeque::new();
-        snake.push_back(Position {
-            x: GRID_WIDTH / 2,
-            y: GRID_HEIGHT / 2,
-        });
-
-        // ก่อนรีเซ็ต ถ้าคะแนนมากกว่า high_score ให้บันทึก
-        let score = self.snake.len() - 1;
-        if score > self.high_score {
-            self.high_score = score;
-            self.save_high_score();
-        }
-
-        self.snake = snake;
-        self.dir = Direction::Right;
-        self.food = Self::random_food(&self.snake);
+        self.snake.reset();
+        self.food.respawn(&self.snake.body);
         self.game_over = false;
         self.frame_counter = 0;
+        self.power_up_manager.reset();
+        
+        if self.game_mode == GameMode::Obstacle {
+            self.obstacles = self.generate_obstacles();
+        } else {
+            self.obstacles.clear();
+        }
     }
 
     fn update_button_positions(&mut self) {
@@ -278,6 +149,7 @@ impl SnakeGame {
             screen_w / 2.0 - 100.0,
             screen_h / 2.0 + 110.0,
         );
+        
         self.mode_button.update_position(
             screen_w / 2.0 - 100.0,
             screen_h / 2.0 + 180.0,
@@ -287,64 +159,49 @@ impl SnakeGame {
     fn update(&mut self) {
         self.frame_counter += 1;
 
-        // ควบคุมความเร็วงูแยกจาก FPS (งูจะเดินทุก 8 เฟรม)
-        if self.frame_counter < 10 {
+        let speed_threshold = (10.0 / self.power_up_manager.speed_multiplier) as u8;
+        if self.frame_counter < speed_threshold {
             return;
         }
         self.frame_counter = 0;
 
-        let mut new_head = *self.snake.front().unwrap();
-        match self.dir {
-            Direction::Up => new_head.y -= 1,
-            Direction::Down => new_head.y += 1,
-            Direction::Left => new_head.x -= 1,
-            Direction::Right => new_head.x += 1,
-        }
+        self.power_up_manager.update(&self.snake.body, &self.food.position);
 
-        // เดินทะลุขอบ (wrap around)
-        if new_head.x < 0 {
-            new_head.x = GRID_WIDTH - 1;
-        } else if new_head.x >= GRID_WIDTH {
-            new_head.x = 0;
-        }
+        let new_head = self.snake.move_snake();
 
-        if new_head.y < 0 {
-            new_head.y = GRID_HEIGHT - 1;
-        } else if new_head.y >= GRID_HEIGHT {
-            new_head.y = 0;
-        }
-
-        if self.snake.contains(&new_head) {
-            // Play crash sound
-            if self.sound_manager.sound_enabled {
-                println!("💥 Crash sound played!");
-            }
+        if (self.snake.contains(&new_head) || self.obstacles.contains(&new_head)) && !self.power_up_manager.ghost_mode {
+            self.sound_manager.play_crash_sound();
+            self.save_current_score();
             self.game_over = true;
             self.state = GameState::GameOver;
             return;
         }
 
-        self.snake.push_front(new_head);
+        self.snake.grow(new_head);
 
-        if new_head == self.food {
-            self.food = Self::random_food(&self.snake);
-            // Play eat sound
-            if self.sound_manager.sound_enabled {
-                // TODO: Add actual sound playing
-                println!("🎵 Eat sound played!");
+        // ตรวจสอบการชนกับ Power-up
+        if let Some(power_type) = self.power_up_manager.check_collision(&new_head) {
+            match power_type {
+                PowerUpType::SpeedBoost => {
+                    self.sound_manager.play_power_up_sound("speed boost");
+                }
+                PowerUpType::Shrink => {
+                    for _ in 0..2 {
+                        self.snake.shrink();
+                    }
+                    self.sound_manager.play_power_up_sound("shrink");
+                }
+                PowerUpType::GhostMode => {
+                    self.sound_manager.play_power_up_sound("ghost mode");
+                }
             }
-        } else {
-            self.snake.pop_back();
         }
-    }
 
-    fn change_direction(&mut self, new_dir: Direction) {
-        if (self.dir == Direction::Up && new_dir != Direction::Down)
-            || (self.dir == Direction::Down && new_dir != Direction::Up)
-            || (self.dir == Direction::Left && new_dir != Direction::Right)
-            || (self.dir == Direction::Right && new_dir != Direction::Left)
-        {
-            self.dir = new_dir;
+        if new_head == self.food.position {
+            self.food.respawn(&self.snake.body);
+            self.sound_manager.play_eat_sound();
+        } else {
+            self.snake.shrink();
         }
     }
 
@@ -354,10 +211,8 @@ impl SnakeGame {
         let screen_w = screen_width();
         let screen_h = screen_height();
         
-        // วาดกรอบสนาม
         draw_rectangle_lines(0.0, 0.0, screen_w, screen_h, 2.0, WHITE);
         
-        // วาดชื่อเกม
         draw_text(
             "SNAKE GAME",
             screen_w / 2.0 - 120.0,
@@ -366,13 +221,11 @@ impl SnakeGame {
             GREEN,
         );
         
-        // วาดปุ่ม
         self.start_button.draw();
         self.exit_button.draw();
         self.sound_button.draw();
         self.mode_button.draw();
         
-        // แสดง High Score
         draw_text(
             &format!("High Score: {}", self.high_score),
             screen_w / 2.0 - 90.0,
@@ -380,7 +233,7 @@ impl SnakeGame {
             30.0,
             YELLOW,
         );
-        // แสดง FPS
+        
         draw_text(
             &format!("FPS: {}", get_fps()),
             screen_w - 100.0,
@@ -397,26 +250,24 @@ impl SnakeGame {
         let screen_h = screen_height();
         let cell_size = get_cell_size();
 
-        // คำนวณตำแหน่งเริ่มต้นเพื่อให้เกมอยู่กลางหน้าจอ
         let game_width = GRID_WIDTH as f32 * cell_size;
         let game_height = GRID_HEIGHT as f32 * cell_size;
         let offset_x = (screen_w - game_width) / 2.0;
         let offset_y = (screen_h - game_height) / 2.0;
 
-        // วาดกรอบสนาม
         draw_rectangle_lines(offset_x, offset_y, game_width, game_height, 2.0, WHITE);
 
         // วาดอาหาร
         draw_rectangle(
-            offset_x + self.food.x as f32 * cell_size,
-            offset_y + self.food.y as f32 * cell_size,
+            offset_x + self.food.position.x as f32 * cell_size,
+            offset_y + self.food.position.y as f32 * cell_size,
             cell_size,
             cell_size,
             RED,
         );
 
         // วาดงู
-        for (i, seg) in self.snake.iter().enumerate() {
+        for (i, seg) in self.snake.body.iter().enumerate() {
             let color = if i == 0 { GREEN } else { DARKGREEN };
             draw_rectangle(
                 offset_x + seg.x as f32 * cell_size,
@@ -427,7 +278,45 @@ impl SnakeGame {
             );
         }
 
-        // แสดงคะแนน
+        // วาด Power-ups
+        for power_up in &self.power_up_manager.power_ups {
+            let color = match power_up.power_type {
+                PowerUpType::SpeedBoost => YELLOW,
+                PowerUpType::Shrink => ORANGE,
+                PowerUpType::GhostMode => PURPLE,
+            };
+            draw_rectangle(
+                offset_x + power_up.position.x as f32 * cell_size,
+                offset_y + power_up.position.y as f32 * cell_size,
+                cell_size,
+                cell_size,
+                color,
+            );
+            let symbol = match power_up.power_type {
+                PowerUpType::SpeedBoost => "speed",
+                PowerUpType::Shrink => "shrink",
+                PowerUpType::GhostMode => "ghost",
+            };
+            draw_text(
+                symbol,
+                offset_x + power_up.position.x as f32 * cell_size + cell_size / 4.0,
+                offset_y + power_up.position.y as f32 * cell_size + cell_size / 2.0,
+                cell_size / 2.0,
+                BLACK,
+            );
+        }
+
+        // วาด Obstacles
+        for obstacle in &self.obstacles {
+            draw_rectangle(
+                offset_x + obstacle.x as f32 * cell_size,
+                offset_y + obstacle.y as f32 * cell_size,
+                cell_size,
+                cell_size,
+                DARKGRAY,
+            );
+        }
+
         draw_text(
             &format!("Score: {}", self.snake.len() - 1),
             10.0,
@@ -436,7 +325,23 @@ impl SnakeGame {
             WHITE,
         );
 
-        // แสดง FPS (ด้านบนขวา)
+        let mut y_offset = 30.0;
+        for (power_type, duration) in &self.power_up_manager.active_power_ups {
+            let text = match power_type {
+                PowerUpType::SpeedBoost => format!("speed boost: {}s", duration / 60),
+                PowerUpType::GhostMode => format!("ghost mode: {}s", duration / 60),
+                PowerUpType::Shrink => "shrink active".to_string(),
+            };
+            draw_text(
+                &text,
+                10.0,
+                screen_h - y_offset,
+                16.0,
+                YELLOW,
+            );
+            y_offset += 20.0;
+        }
+
         draw_text(
             &format!("FPS: {}", get_fps()),
             screen_w - 100.0,
@@ -452,7 +357,6 @@ impl SnakeGame {
         let screen_w = screen_width();
         let screen_h = screen_height();
         
-        // แสดง Game Over
         draw_text(
             "GAME OVER",
             screen_w / 2.0 - 100.0,
@@ -460,7 +364,7 @@ impl SnakeGame {
             40.0,
             WHITE,
         );
-        // แสดงคะแนนสูงสุด
+        
         draw_text(
             &format!("High Score: {}", self.high_score),
             screen_w / 2.0 - 90.0,
@@ -468,6 +372,7 @@ impl SnakeGame {
             30.0,
             YELLOW,
         );
+        
         draw_text(
             "Press ENTER to Restart",
             screen_w / 2.0 - 130.0,
@@ -475,6 +380,7 @@ impl SnakeGame {
             25.0,
             GRAY,
         );
+        
         draw_text(
             "Press ESC for Menu",
             screen_w / 2.0 - 100.0,
@@ -490,7 +396,6 @@ impl SnakeGame {
             GameState::Playing => self.draw_game(),
             GameState::Paused => {
                 self.draw_game();
-                // วาดข้อความ Paused ทับ
                 let screen_w = screen_width();
                 let screen_h = screen_height();
                 draw_rectangle(
@@ -527,8 +432,7 @@ impl SnakeGame {
                     } else {
                         "Sound: OFF".to_string()
                     };
-                }
-                if self.mode_button.is_clicked() {
+                } else if self.mode_button.is_clicked() {
                     self.game_mode = if self.game_mode == GameMode::Normal {
                         GameMode::Obstacle
                     } else {
@@ -543,13 +447,13 @@ impl SnakeGame {
             },
             GameState::Playing => {
                 if is_key_pressed(KeyCode::Up) {
-                    self.change_direction(Direction::Up);
+                    self.snake.change_direction(Direction::Up);
                 } else if is_key_pressed(KeyCode::Down) {
-                    self.change_direction(Direction::Down);
+                    self.snake.change_direction(Direction::Down);
                 } else if is_key_pressed(KeyCode::Left) {
-                    self.change_direction(Direction::Left);
+                    self.snake.change_direction(Direction::Left);
                 } else if is_key_pressed(KeyCode::Right) {
-                    self.change_direction(Direction::Right);
+                    self.snake.change_direction(Direction::Right);
                 } else if is_key_pressed(KeyCode::Escape) {
                     self.state = GameState::Menu;
                 } else if is_key_pressed(KeyCode::Space) {
@@ -583,9 +487,7 @@ async fn main() {
     let mut game = SnakeGame::new();
 
     loop {
-        // อัปเดตตำแหน่งปุ่มเมื่อหน้าจอเปลี่ยนขนาด
         game.update_button_positions();
-        
         game.handle_input();
 
         if game.state == GameState::Playing {
@@ -595,4 +497,4 @@ async fn main() {
         game.draw();
         next_frame().await;
     }
-}
+} 
