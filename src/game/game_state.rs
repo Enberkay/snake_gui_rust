@@ -1,6 +1,3 @@
-use std::collections::VecDeque;
-use crate::utils::{GRID_WIDTH, GRID_HEIGHT};
-
 #[derive(Copy, Clone, PartialEq)]
 pub enum Direction {
     Up,

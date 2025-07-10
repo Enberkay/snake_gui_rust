@@ -84,8 +84,4 @@ impl Snake {
     pub fn len(&self) -> usize {
         self.body.len()
     }
-
-    pub fn front(&self) -> Option<&Position> {
-        self.body.front()
-    }
 } 
