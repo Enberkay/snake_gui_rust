@@ -5,6 +5,11 @@ use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
+// Sound system
+struct SoundManager {
+    sound_enabled: bool,
+}
+
 const GRID_WIDTH: i32 = 40;
 const GRID_HEIGHT: i32 = 30;
 
@@ -23,6 +28,20 @@ enum Direction {
     Down,
     Left,
     Right,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum PowerUpType {
+    SpeedBoost,
+    Shrink,
+    GhostMode,
+}
+
+#[derive(Copy, Clone)]
+struct PowerUp {
+    position: Position,
+    power_type: PowerUpType,
+    duration: u32, // frames
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -105,7 +124,13 @@ struct SnakeGame {
     state: GameState,
     start_button: Button,
     exit_button: Button,
+    sound_button: Button,
     high_score: usize, // เพิ่มฟิลด์ high_score
+    sound_manager: SoundManager, // เพิ่ม sound manager
+    power_ups: Vec<PowerUp>, // เพิ่ม power-ups
+    active_power_ups: Vec<(PowerUpType, u32)>, // active power-ups with remaining duration
+    speed_multiplier: f32, // สำหรับ speed boost
+    ghost_mode: bool, // สำหรับ ghost mode
 }
 
 impl SnakeGame {
@@ -152,7 +177,18 @@ impl SnakeGame {
             "Exit".to_string(),
         );
 
+        let sound_button = Button::new(
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 + 110.0,
+            200.0,
+            50.0,
+            "Sound: ON".to_string(),
+        );
+
         let high_score = Self::load_high_score();
+        let sound_manager = SoundManager {
+            sound_enabled: true,
+        };
 
         SnakeGame {
             snake,
@@ -163,7 +199,13 @@ impl SnakeGame {
             state: GameState::Menu,
             start_button,
             exit_button,
+            sound_button,
             high_score,
+            sound_manager,
+            power_ups: Vec::new(),
+            active_power_ups: Vec::new(),
+            speed_multiplier: 1.0,
+            ghost_mode: false,
         }
     }
 
@@ -176,6 +218,26 @@ impl SnakeGame {
             };
             if !snake.contains(&pos) {
                 return pos;
+            }
+        }
+    }
+
+    fn random_power_up(snake: &VecDeque<Position>, food: &Position) -> PowerUp {
+        let mut rng = thread_rng();
+        let power_types = [PowerUpType::SpeedBoost, PowerUpType::Shrink, PowerUpType::GhostMode];
+        let power_type = power_types[rng.gen_range(0..power_types.len())];
+        
+        loop {
+            let pos = Position {
+                x: rng.gen_range(0..GRID_WIDTH),
+                y: rng.gen_range(0..GRID_HEIGHT),
+            };
+            if !snake.contains(&pos) && pos != *food {
+                return PowerUp {
+                    position: pos,
+                    power_type,
+                    duration: 300, // 5 seconds at 60 FPS
+                };
             }
         }
     }
@@ -199,6 +261,10 @@ impl SnakeGame {
         self.food = Self::random_food(&self.snake);
         self.game_over = false;
         self.frame_counter = 0;
+        self.power_ups.clear();
+        self.active_power_ups.clear();
+        self.speed_multiplier = 1.0;
+        self.ghost_mode = false;
     }
 
     fn update_button_positions(&mut self) {
@@ -214,16 +280,47 @@ impl SnakeGame {
             screen_w / 2.0 - 100.0,
             screen_h / 2.0 + 40.0,
         );
+        
+        self.sound_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 + 110.0,
+        );
     }
 
     fn update(&mut self) {
         self.frame_counter += 1;
 
         // ควบคุมความเร็วงูแยกจาก FPS (งูจะเดินทุก 8 เฟรม)
-        if self.frame_counter < 10 {
+        let speed_threshold = (10.0 / self.speed_multiplier) as u8;
+        if self.frame_counter < speed_threshold {
             return;
         }
         self.frame_counter = 0;
+
+        // อัปเดต active power-ups
+        self.active_power_ups.retain_mut(|(power_type, duration)| {
+            if *duration > 0 {
+                *duration -= 1;
+            }
+            if *duration == 0 {
+                // Power-up หมดเวลา
+                match power_type {
+                    PowerUpType::SpeedBoost => self.speed_multiplier = 1.0,
+                    PowerUpType::GhostMode => self.ghost_mode = false,
+                    PowerUpType::Shrink => {
+                        // Shrink effect จะหายไปอัตโนมัติ
+                    }
+                }
+                false
+            } else {
+                true
+            }
+        });
+
+        // สร้าง Power-up ใหม่ (โอกาส 1% ต่อเฟรม)
+        if self.power_ups.is_empty() && thread_rng().gen::<f32>() < 0.01 {
+            self.power_ups.push(Self::random_power_up(&self.snake, &self.food));
+        }
 
         let mut new_head = *self.snake.front().unwrap();
         match self.dir {
@@ -246,13 +343,49 @@ impl SnakeGame {
             new_head.y = 0;
         }
 
-        if self.snake.contains(&new_head) {
+        if self.snake.contains(&new_head) && !self.ghost_mode {
+            // Play crash sound
+            if self.sound_manager.sound_enabled {
+                println!("crash sound played!");
+            }
             self.game_over = true;
             self.state = GameState::GameOver;
             return;
         }
 
         self.snake.push_front(new_head);
+
+        // ตรวจสอบการชนกับ Power-up
+        if let Some(power_up_index) = self.power_ups.iter().position(|p| p.position == new_head) {
+            let power_up = self.power_ups.remove(power_up_index);
+            match power_up.power_type {
+                PowerUpType::SpeedBoost => {
+                    self.speed_multiplier = 2.0;
+                    self.active_power_ups.push((PowerUpType::SpeedBoost, power_up.duration));
+                    if self.sound_manager.sound_enabled {
+                        println!("speed boost activated!");
+                    }
+                }
+                PowerUpType::Shrink => {
+                    // ลบหางงู 2 ตัว
+                    for _ in 0..2 {
+                        if self.snake.len() > 1 {
+                            self.snake.pop_back();
+                        }
+                    }
+                    if self.sound_manager.sound_enabled {
+                        println!("shrink activated!");
+                    }
+                }
+                PowerUpType::GhostMode => {
+                    self.ghost_mode = true;
+                    self.active_power_ups.push((PowerUpType::GhostMode, power_up.duration));
+                    if self.sound_manager.sound_enabled {
+                        println!("ghost mode activated!");
+                    }
+                }
+            }
+        }
 
         if new_head == self.food {
             self.food = Self::random_food(&self.snake);
@@ -292,6 +425,7 @@ impl SnakeGame {
         // วาดปุ่ม
         self.start_button.draw();
         self.exit_button.draw();
+        self.sound_button.draw();
         
         // แสดง High Score
         draw_text(
@@ -348,6 +482,35 @@ impl SnakeGame {
             );
         }
 
+        // วาด Power-ups
+        for power_up in &self.power_ups {
+            let color = match power_up.power_type {
+                PowerUpType::SpeedBoost => YELLOW,
+                PowerUpType::Shrink => ORANGE,
+                PowerUpType::GhostMode => PURPLE,
+            };
+            draw_rectangle(
+                offset_x + power_up.position.x as f32 * cell_size,
+                offset_y + power_up.position.y as f32 * cell_size,
+                cell_size,
+                cell_size,
+                color,
+            );
+            // วาดสัญลักษณ์ Power-up
+            let symbol = match power_up.power_type {
+                PowerUpType::SpeedBoost => "speed",
+                PowerUpType::Shrink => "shrink",
+                PowerUpType::GhostMode => "ghost",
+            };
+            draw_text(
+                symbol,
+                offset_x + power_up.position.x as f32 * cell_size + cell_size / 4.0,
+                offset_y + power_up.position.y as f32 * cell_size + cell_size / 2.0,
+                cell_size / 2.0,
+                BLACK,
+            );
+        }
+
         // แสดงคะแนน
         draw_text(
             &format!("Score: {}", self.snake.len() - 1),
@@ -356,6 +519,24 @@ impl SnakeGame {
             20.0,
             WHITE,
         );
+
+        // แสดงสถานะ Power-up ที่กำลังทำงาน
+        let mut y_offset = 30.0;
+        for (power_type, duration) in &self.active_power_ups {
+            let text = match power_type {
+                PowerUpType::SpeedBoost => format!("speed boost: {}s", duration / 60),
+                PowerUpType::GhostMode => format!("ghost mode: {}s", duration / 60),
+                PowerUpType::Shrink => "shrink active".to_string(),
+            };
+            draw_text(
+                &text,
+                10.0,
+                screen_h - y_offset,
+                16.0,
+                YELLOW,
+            );
+            y_offset += 20.0;
+        }
 
         // แสดง FPS (ด้านบนขวา)
         draw_text(
@@ -441,6 +622,13 @@ impl SnakeGame {
                     self.state = GameState::Playing;
                 } else if self.exit_button.is_clicked() {
                     std::process::exit(0);
+                } else if self.sound_button.is_clicked() {
+                    self.sound_manager.sound_enabled = !self.sound_manager.sound_enabled;
+                    self.sound_button.text = if self.sound_manager.sound_enabled {
+                        "Sound: ON".to_string()
+                    } else {
+                        "Sound: OFF".to_string()
+                    };
                 }
             },
             GameState::Playing => {
