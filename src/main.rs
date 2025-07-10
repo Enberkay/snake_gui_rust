@@ -44,6 +44,26 @@ enum GameState {
     GameOver,
 }
 
+#[derive(PartialEq)]
+enum GameMode {
+    Normal,
+    Obstacle,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum PowerUpType {
+    SpeedBoost,
+    Shrink,
+    GhostMode,
+}
+
+#[derive(Copy, Clone)]
+struct PowerUp {
+    position: Position,
+    power_type: PowerUpType,
+    duration: u32, // frames
+}
+
 struct Button {
     x: f32,
     y: f32,
@@ -111,8 +131,14 @@ struct SnakeGame {
     start_button: Button,
     exit_button: Button,
     sound_button: Button,
+    mode_button: Button,
     high_score: usize, // เพิ่มฟิลด์ high_score
     sound_manager: SoundManager, // เพิ่ม sound manager
+    game_mode: GameMode,
+    power_ups: Vec<PowerUp>,
+    active_power_ups: Vec<(PowerUpType, u32)>,
+    speed_multiplier: f32,
+    ghost_mode: bool,
 }
 
 impl SnakeGame {
@@ -166,6 +192,13 @@ impl SnakeGame {
             50.0,
             "Sound: ON".to_string(),
         );
+        let mode_button = Button::new(
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 + 180.0,
+            200.0,
+            50.0,
+            "Mode: Normal".to_string(),
+        );
 
         let high_score = Self::load_high_score();
         let sound_manager = SoundManager {
@@ -182,8 +215,14 @@ impl SnakeGame {
             start_button,
             exit_button,
             sound_button,
+            mode_button,
             high_score,
             sound_manager,
+            game_mode: GameMode::Normal,
+            power_ups: Vec::new(),
+            active_power_ups: Vec::new(),
+            speed_multiplier: 1.0,
+            ghost_mode: false,
         }
     }
 
@@ -238,6 +277,10 @@ impl SnakeGame {
         self.sound_button.update_position(
             screen_w / 2.0 - 100.0,
             screen_h / 2.0 + 110.0,
+        );
+        self.mode_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 + 180.0,
         );
     }
 
@@ -327,6 +370,7 @@ impl SnakeGame {
         self.start_button.draw();
         self.exit_button.draw();
         self.sound_button.draw();
+        self.mode_button.draw();
         
         // แสดง High Score
         draw_text(
@@ -482,6 +526,18 @@ impl SnakeGame {
                         "Sound: ON".to_string()
                     } else {
                         "Sound: OFF".to_string()
+                    };
+                }
+                if self.mode_button.is_clicked() {
+                    self.game_mode = if self.game_mode == GameMode::Normal {
+                        GameMode::Obstacle
+                    } else {
+                        GameMode::Normal
+                    };
+                    self.mode_button.text = if self.game_mode == GameMode::Normal {
+                        "Mode: Normal".to_string()
+                    } else {
+                        "Mode: Obstacle".to_string()
                     };
                 }
             },
