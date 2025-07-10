@@ -5,6 +5,11 @@ use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 
+// Sound system
+struct SoundManager {
+    sound_enabled: bool,
+}
+
 const GRID_WIDTH: i32 = 40;
 const GRID_HEIGHT: i32 = 30;
 
@@ -105,7 +110,9 @@ struct SnakeGame {
     state: GameState,
     start_button: Button,
     exit_button: Button,
+    sound_button: Button,
     high_score: usize, // เพิ่มฟิลด์ high_score
+    sound_manager: SoundManager, // เพิ่ม sound manager
 }
 
 impl SnakeGame {
@@ -152,7 +159,18 @@ impl SnakeGame {
             "Exit".to_string(),
         );
 
+        let sound_button = Button::new(
+            screen_width() / 2.0 - 100.0,
+            screen_height() / 2.0 + 110.0,
+            200.0,
+            50.0,
+            "Sound: ON".to_string(),
+        );
+
         let high_score = Self::load_high_score();
+        let sound_manager = SoundManager {
+            sound_enabled: true,
+        };
 
         SnakeGame {
             snake,
@@ -163,7 +181,9 @@ impl SnakeGame {
             state: GameState::Menu,
             start_button,
             exit_button,
+            sound_button,
             high_score,
+            sound_manager,
         }
     }
 
@@ -214,6 +234,11 @@ impl SnakeGame {
             screen_w / 2.0 - 100.0,
             screen_h / 2.0 + 40.0,
         );
+        
+        self.sound_button.update_position(
+            screen_w / 2.0 - 100.0,
+            screen_h / 2.0 + 110.0,
+        );
     }
 
     fn update(&mut self) {
@@ -247,6 +272,10 @@ impl SnakeGame {
         }
 
         if self.snake.contains(&new_head) {
+            // Play crash sound
+            if self.sound_manager.sound_enabled {
+                println!("💥 Crash sound played!");
+            }
             self.game_over = true;
             self.state = GameState::GameOver;
             return;
@@ -256,6 +285,11 @@ impl SnakeGame {
 
         if new_head == self.food {
             self.food = Self::random_food(&self.snake);
+            // Play eat sound
+            if self.sound_manager.sound_enabled {
+                // TODO: Add actual sound playing
+                println!("🎵 Eat sound played!");
+            }
         } else {
             self.snake.pop_back();
         }
@@ -292,6 +326,7 @@ impl SnakeGame {
         // วาดปุ่ม
         self.start_button.draw();
         self.exit_button.draw();
+        self.sound_button.draw();
         
         // แสดง High Score
         draw_text(
@@ -441,6 +476,13 @@ impl SnakeGame {
                     self.state = GameState::Playing;
                 } else if self.exit_button.is_clicked() {
                     std::process::exit(0);
+                } else if self.sound_button.is_clicked() {
+                    self.sound_manager.sound_enabled = !self.sound_manager.sound_enabled;
+                    self.sound_button.text = if self.sound_manager.sound_enabled {
+                        "Sound: ON".to_string()
+                    } else {
+                        "Sound: OFF".to_string()
+                    };
                 }
             },
             GameState::Playing => {
